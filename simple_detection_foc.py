@@ -189,7 +189,7 @@ def multi_scale_template_matching(haystack_path, needle_folder, threshold=0.6, s
             
             # needle_template = needle_gray[:,:,0:2]
             # alpha = needle_template[:,:,3]
-            # needle_alpha_merged = cv2.merge([alpha,alpha,alpha])
+            # needle_alpha_merged = cv.merge([alpha,alpha,alpha])
             # Template matching
             if use_colored_matching:
                 result = cv.matchTemplate(haystack_img, scaled_needle, cv.TM_CCOEFF_NORMED)
@@ -240,23 +240,23 @@ def multi_scale_template_matching(haystack_path, needle_folder, threshold=0.6, s
             
             if needle_name.startswith('stop_bet_settle'):
 
-                new_height = 3*roi_h # thora hacky   # Adjust height based on the region of interest
-                roi_y -=2
-                # cv.rectangle(result_img, (roi_x//2, roi_y+roi_h), (roi_x + roi_w, roi_y + new_height), (255,0,0), 2)
-                # Ensure the slicing is within bounds
-                if roi_y + roi_h < result_img.shape[0] and roi_y + new_height < result_img.shape[0] and (roi_x + roi_w//2) < result_img.shape[1] and roi_x + roi_w < result_img.shape[1]: 
-                    # cv.rectangle(result_img, (roi_x//2, roi_y+roi_h), (roi_x + roi_w, roi_y + new_height), (255,0,0), 2)
-                    s_img = result_img[roi_y:roi_y+new_height, roi_x + roi_w//2: roi_x+roi_w]
-                    # cv.imshow("Result", s_img)
-                    # cv.waitKey(0)
-                    # cv.destroyAllWindows()
-                    gs_img = cv.cvtColor(s_img, cv.COLOR_BGR2GRAY)
+                # new_height = 3*roi_h # thora hacky   # Adjust height based on the region of interest
+                # roi_y -=2
+                # # cv.rectangle(result_img, (roi_x//2, roi_y+roi_h), (roi_x + roi_w, roi_y + new_height), (255,0,0), 2)
+                # # Ensure the slicing is within bounds
+                # if roi_y + roi_h < result_img.shape[0] and roi_y + new_height < result_img.shape[0] and (roi_x + roi_w//2) < result_img.shape[1] and roi_x + roi_w < result_img.shape[1]: 
+                #     # cv.rectangle(result_img, (roi_x//2, roi_y+roi_h), (roi_x + roi_w, roi_y + new_height), (255,0,0), 2)
+                #     s_img = result_img[roi_y:roi_y+new_height, roi_x + roi_w//2: roi_x+roi_w]
+                #     # cv.imshow("Result", s_img)
+                #     # cv.waitKey(0)
+                #     # cv.destroyAllWindows()
+                #     gs_img = cv.cvtColor(s_img, cv.COLOR_BGR2GRAY)
 
-                    dim_top = (roi_x + roi_w//2,roi_y)
-                    dim_bottom = (roi_x+roi_w,roi_y+new_height)
+                #     dim_top = (roi_x + roi_w//2,roi_y)
+                #     dim_bottom = (roi_x+roi_w,roi_y+new_height)
 
-                    color = (0,0,255)
-                    cv.rectangle(result_img, dim_top,dim_bottom, color, 2)            
+                #     color = (0,0,255)
+                #     cv.rectangle(result_img, dim_top,dim_bottom, color, 2)            
 
                 # cv.imshow("Result", gs_img)
                 # cv.waitKey(0)
@@ -430,7 +430,7 @@ def detect_chips_simple(haystack_img, result_img, all_matches):
     })
 
 def main():
-    haystack_path = 'casino6.png'
+    haystack_path = '25_16_casino.png'
     needle_folder = 'templates'
     output_folder = 'output2'
 
@@ -443,7 +443,7 @@ def main():
 
     # Define scale range and steps
     scale_range = (0.5, 1.5)  # Try scales from 50% to 150%
-    scale_steps = 7  # Try 7 different scales within this range
+    scale_steps = 7 # Try 7 different scales within this range
     
    
     # Perform multi-scale template matching
@@ -456,8 +456,11 @@ def main():
     )
     
     # Process turn ROI if boundaries were found
+    ans = {}
     for match in matches:
-        if match["confidence"] > 0.65:
+        if match['template'] == 'ring':
+                ans = match
+        elif match["confidence"] > 0.65:
             # if match['template'].startswith('ring'):
             #     print(f"ring coords :  {match['position']}, {(match['position'][0]+match['size'][0],match['position'][1]+match['size'][1])}")
             #     cv.rectangle(result_img, match["position"], (match["position"][0]+match["size"][0],match["position"][1]+match["size"][1]), (0,0,255), 2)
@@ -467,17 +470,69 @@ def main():
             #     print("right cords :", (match["position"][0],match["position"][1]+match["size"][1]))
          
             color = (0,0,255)
-            cv.rectangle(result_img, match["position"], (match["position"][0]+match["size"][0],match["position"][1]+match["size"][1]), color, 2)
+            cv.rectangle(result_img, match["position"], (match["position"][0]+match["size"][0],match["position"][1]+match["size"][1]), color, 1)
             label = f"{match['template']}"
             cv.putText(result_img, label, (match["position"][0],match["position"][1]-10),
                         cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
+            
+
+    image = cv.imread(haystack_path)
+    gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
     
-    # If no matches for the right side, try simple chip detection
-    # if not any('chip' in match['template'].lower() for match in matches):
-        # detect_chips_simple(cv.imread(haystack_path), result_img, matches)
+    # Define lower and upper bounds for grey color
+    lower_gray = 180  # Adjust based on image intensity
+    upper_gray = 220  # Adjust based on image intensity
     
-    # Save result
+    x_start, y_start = ans['position']
+    x_end, y_end = (ans['size'][0] + ans['position'][0], ans['size'][1] + ans['position'][1])
+    gray = gray[y_start:y_end, x_start:x_end]
+    # Create a mask to extract grey lines
+    mask = cv.inRange(gray, lower_gray, upper_gray)
+
+    # Apply Gaussian blur to reduce noise
+    blurred = cv.GaussianBlur(mask, (5, 5), 0)
+    
+    # Use edge detection
+    edges = cv.Canny(blurred, 50, 150, apertureSize=3)
+
+    cv.imshow('Detected Grey Lines', edges)
+    cv.waitKey(0)
+    cv.destroyAllWindows()
+    
+    # Use Hough Line Transform to detect straight lines
+    # lines = cv.HoughLinesP(edges, 1, np.pi / 180, 30, minLineLength=10, maxLineGap=7)
+    
+    # Draw only vertical and horizontal lines on the original
+    # cv.destroyAllWindows()
+    
+    # Use Hough Line Transform to detect straight vertical lines
+    lines = cv.HoughLinesP(edges, 1, np.pi / 90, 30, minLineLength=10, maxLineGap=5)
+    
+    # Draw only vertical lines on the original image
+    result = image.copy()
+    if lines is not None:
+        for line in lines:
+            x1, y1, x2, y2 = line[0]
+            angle = np.arctan2(y2 - y1, x2 - x1) * 180 / np.pi
+            if abs(angle) > 85:  # Ensure the line is close to vertical
+                print("hello")
+                ans_top_left = (x2 + x_start, y2 + y_start)
+                cv.line(result, (x1 + x_start, y1 + y_start), (x2 + x_start, y2 + y_start), (0, 255, 0), 2)
+                
+                break
+    # cv.drawContours(result, contours, -1, (0, 255, 0), 2)
+    color = (0,0,255)
+    cv.rectangle(result_img, ans_top_left,(x_end, y_end), color, 1)
+          
+    result_path = os.path.join(output_folder, "grayscale.png")
+    cv.imwrite(result_path, result)
+    
+    # # If no matches for the right side, try simple chip detection
+    # # if not any('chip' in match['template'].lower() for match in matches):
+    #     # detect_chips_simple(cv.imread(haystack_path), result_img, matches)
+    
+    # # Save result
     result_path = os.path.join(output_folder, "detection_result.png")
     cv.imwrite(result_path, result_img)
     # cv.imshow("Result",result_img)
