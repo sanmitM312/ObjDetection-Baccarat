@@ -5,6 +5,7 @@ import re
 import time
 import pytesseract
 import fnmatch
+
 def convert_to_png(image_path):
     img = cv.imread(image_path)
     if img is None:
@@ -79,7 +80,7 @@ def multi_scale_template_matching(haystack_path, needle_folder, threshold=0.6, s
         print(f"Error: Could not load haystack image: {haystack_path}")
         return None, []
     
-    print(f"{haystack_img.shape} aspect ratio {haystack_img.shape[0]/haystack_img.shape[1]}")
+    print(f"Before scaling up{haystack_img.shape} aspect ratio {haystack_img.shape[0]/haystack_img.shape[1]}")
     
     # haystack_img = resize(haystack_img)
     
@@ -101,51 +102,14 @@ def multi_scale_template_matching(haystack_path, needle_folder, threshold=0.6, s
     result_img = haystack_img.copy()
     # preprocess
     haystack_img = resize(haystack_img)
+
+    print(f"After scaling down{haystack_img.shape} aspect ratio {haystack_img.shape[0]/haystack_img.shape[1]}")
+
     haystack_gray = cv.cvtColor(haystack_img, cv.COLOR_BGR2GRAY)
 
     # Generate scale factors
     min_scale, max_scale = scale_range
     scale_factors = np.linspace(min_scale, max_scale, scale_steps)
-    
-    # Load the bottom_bounds needle template
-    bottom_bounds_path = os.path.join(needle_folder, 'bottom_bounds.png')
-    bottom_bounds_template = cv.imread('./templates/bottom_bounds.png', cv.IMREAD_GRAYSCALE)
-    
-    if bottom_bounds_template is None:
-        print(f"Error: Could not load bottom_bounds template: {bottom_bounds_path}")
-        return None, []
-
-    best_bottom_match = None
-    for scale in scale_factors:
-        # Calculate new dimensions
-        new_width = int(bottom_bounds_template.shape[1] * scale)
-        new_height = int(bottom_bounds_template.shape[0] * scale)
-        
-        # Skip if scaled dimensions are too small
-        if new_width < 10 or new_height < 10:
-            continue
-        
-        # Resize the template
-        scaled_bottom_bounds = cv.resize(bottom_bounds_template, (new_width, new_height), interpolation=cv.INTER_AREA if scale < 1 else cv.INTER_LINEAR)
-        
-        # Template matching
-        result = cv.matchTemplate(haystack_gray, scaled_bottom_bounds, cv.TM_CCOEFF_NORMED)
-
-        # Get the best match for this scale
-        _, max_val, _, max_loc = cv.minMaxLoc(result)
-        
-        # Update best match if this is better
-        if best_bottom_match is None or max_val > best_bottom_match['confidence']:
-            best_bottom_match = {
-                'position': max_loc,
-                'size': (new_width, new_height),
-                'confidence': max_val,
-                'scale': scale
-            }
-            best_bottom_match["position"], best_bottom_match["size"] = scale_up_coordinates(result_img, haystack_img, best_bottom_match["position"], best_bottom_match["size"])
-    
-    color = (0,0,255)
-    cv.rectangle(result_img, best_bottom_match["position"], (best_bottom_match["position"][0]+best_bottom_match["size"][0],best_bottom_match["position"][1]+best_bottom_match["size"][1]), color, 2)
 
     # Process each needle template
     for needle_path in needle_files:
@@ -201,7 +165,7 @@ def multi_scale_template_matching(haystack_path, needle_folder, threshold=0.6, s
             
 
             # Update best match if this is better
-            if best_match is None or max_val > best_match['confidence']:
+            if best_match is None or max_val >= best_match['confidence']:
                 best_match = {
                     'template': needle_name,
                     'position': max_loc,
@@ -239,29 +203,6 @@ def multi_scale_template_matching(haystack_path, needle_folder, threshold=0.6, s
                 })
             
             if needle_name.startswith('stop_bet_settle'):
-
-                # new_height = 3*roi_h # thora hacky   # Adjust height based on the region of interest
-                # roi_y -=2
-                # # cv.rectangle(result_img, (roi_x//2, roi_y+roi_h), (roi_x + roi_w, roi_y + new_height), (255,0,0), 2)
-                # # Ensure the slicing is within bounds
-                # if roi_y + roi_h < result_img.shape[0] and roi_y + new_height < result_img.shape[0] and (roi_x + roi_w//2) < result_img.shape[1] and roi_x + roi_w < result_img.shape[1]: 
-                #     # cv.rectangle(result_img, (roi_x//2, roi_y+roi_h), (roi_x + roi_w, roi_y + new_height), (255,0,0), 2)
-                #     s_img = result_img[roi_y:roi_y+new_height, roi_x + roi_w//2: roi_x+roi_w]
-                #     # cv.imshow("Result", s_img)
-                #     # cv.waitKey(0)
-                #     # cv.destroyAllWindows()
-                #     gs_img = cv.cvtColor(s_img, cv.COLOR_BGR2GRAY)
-
-                #     dim_top = (roi_x + roi_w//2,roi_y)
-                #     dim_bottom = (roi_x+roi_w,roi_y+new_height)
-
-                #     color = (0,0,255)
-                #     cv.rectangle(result_img, dim_top,dim_bottom, color, 2)            
-
-                # cv.imshow("Result", gs_img)
-                # cv.waitKey(0)
-                # cv.destroyAllWindows()
-
                 status.append({
                     "status" : "Stop Bet",
                     "isNumber": False,
@@ -274,64 +215,45 @@ def multi_scale_template_matching(haystack_path, needle_folder, threshold=0.6, s
                 # print("Inside please bet")
                  
                 # Define the region of interest (ROI) for OCR
-                new_height = int(2 * roi_h)  # Adjust height based on the region of interest
-                roi_y -= 2  # Adjust y-coordinate if needed
+                new_height = 2*roi_h  # Adjust height based on the region of interest
 
                 # Ensure the slicing is within bounds
                 if roi_y + new_height < haystack_img.shape[0] and (roi_x + roi_w) < haystack_img.shape[1]:
-                    sub_img = haystack_img[roi_y:roi_y + new_height, roi_x:roi_x + roi_w]
+                    x_start_ocr = roi_x+int(0.65*roi_w)
+                    x_end_ocr = roi_x + int(0.9*roi_w)
+                    y_start_ocr = roi_y+roi_h
+                    y_end_ocr = roi_y + 3*roi_h
+                    print(f"ROI Coordinates: ({roi_x}, {roi_y}), ({roi_x + roi_w}, {roi_y + roi_h})")
+                    # cv.rectangle(result_img, (roi_x+int(roi_w/2), roi_y+roi_h), (roi_x + roi_w, roi_y + 3*roi_h), (0, 255, 0), 2)
+                    # cv.imshow("ROI", result_img)
+                    # cv.waitKey(0)
+                    # cv.destroyAllWindows()
+                    # print(f"OCR Coordinates: ({x_start_ocr}, {y_start_ocr}), ({x_end_ocr}, {y_end_ocr})")
+
+                    
+
+                    sub_img = result_img[y_start_ocr:y_end_ocr,x_start_ocr:x_end_ocr]
                     gray_sub_img = cv.cvtColor(sub_img, cv.COLOR_BGR2GRAY)
+                    cv.rectangle(result_img, (x_start_ocr, y_start_ocr), (x_end_ocr, y_end_ocr), (0, 0, 255), 2)
 
                     if gray_sub_img is not None:
+                        # cv.imshow("Result", gray_sub_img)
+                        # cv.waitKey(0)
+                        # cv.destroyAllWindows()
                         # Perform OCR on the grayscale sub-image
-                        custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+                        custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789'
                         text = pytesseract.image_to_string(gray_sub_img, config=custom_config)
                         # print(f"OCR Result: {text.strip()}")
 
                         # Draw a rectangle around the ROI
-                        cv.rectangle(result_img, (roi_x, roi_y), (roi_x + roi_w, roi_y + new_height), (0, 0, 255), 2)
-
+                        # cv.rectangle(result_img, (roi_x, roi_y), (roi_x + roi_w, roi_y + new_height), (0, 0, 255), 2)
+                        print(f"OCR Result: {text.strip()}")
                         status.append({
                             "status": "Please Bet",
                             "isNumber": True,
                             "content": text.strip()
                         })
                 
-                # start = time.time()
-                # custom_config = r'--psm 6'
-                # text = pytesseract.image_to_string(gray_sub_img, config=custom_config)
-                # print(time.time() - start)
-                # print(f"OCR Result: {text.strip()}")
-
-                # cv.imshow("Result", gray_sub_img)
-                # cv.waitKey(0)
-                # cv.destroyAllWindows()
-
-                # dim_top = (roi_x + roi_w//2,roi_y)
-                # dim_bottom = (roi_x+roi_w,roi_y+new_height)
-
-                # color = (0,0,255)
-                # cv.rectangle(result_img, dim_top,dim_bottom, color, 2) 
-
-
-                # status.append({
-                #     "status" : "Please Bet",
-                #     "isNumber": True,
-                #     "content": text
-                # })
-        
-                
-            # if(re.match(r'one.*',needle_name)):
-            #     banker_bounds.append((roi_x+roi_w,roi_y-int(1.5*roi_h)))
-            #     player_bounds.append((roi_x+roi_w,roi_y))
-
-            # # if(re.match(r'oneLeft.*',needle_name) and best_match["oneLeft"]['confidence'] > best_match['one']['confidence']):
-            # #     banker_bounds.append((roi_x+roi_w,roi_y-int(1.5*roi_h)))
-            # #     player_bounds.append((roi_x+roi_w,roi_y))
-
-            # if(re.match(r'eight.*',needle_name)):
-            #     banker_bounds.append((roi_x, roi_y))
-            #     player_bounds.append((roi_x,roi_y+roi_h))
             
             if re.match(r'leftBoundary.*', needle_name):
                 top_left_bound = roi_x + roi_w
@@ -373,17 +295,7 @@ def multi_scale_template_matching(haystack_path, needle_folder, threshold=0.6, s
                 })
 
             all_matches.append(best_match)
-            # if not any(re.match(f'^{name}', needle_name) for name in allowed_needle_names):
-            #     continue
 
-
-
-            # color = (0,0,255)
-            # cv.rectangle(result_img, (roi_x, roi_y), (roi_x + roi_w, roi_y + roi_h), color, 2)            
-
-            # label = f"{needle_name}: {best_match['confidence']:.2f} (scale: {best_match['scale']:.2f})"
-            # cv.putText(result_img, label, (roi_x, roi_y - 5),
-            #             cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
     # Sort matches by confidence
     # allowed_needle_names = ['rightBoundary','leftBoundary','stop_bet_open', 'stop_bet_settle', 'please_bet','confirm','cancel','chip_10','chip_50','chip_100','chip_500','chip_1000','banker','player','ring']
     allowed_needle_names = ['banker_1','player_1','stop_bet_open', 'stop_bet_settle', 'please_bet','confirm','cancel','chip_10','chip_50','chip_100','chip_500','chip_1000','banker','player','ring']
@@ -392,45 +304,22 @@ def multi_scale_template_matching(haystack_path, needle_folder, threshold=0.6, s
     # Keep only the highest confidence match for each template
     unique_matches = {}
     for match in sorted(all_matches, key=lambda x: x['confidence'], reverse=True):
-        if match['template'] not in unique_matches:
-            unique_matches[match['template']] = match
-    
+        template_prefix = re.match(r'^(chip_\d+|please_bet|stop_bet)', match['template'])
+        if template_prefix:
+            prefix = template_prefix.group(1)
+            print(prefix)
+            if prefix not in unique_matches or match['confidence'] > unique_matches[prefix]['confidence']:
+                unique_matches[prefix] = match
+        else:
+            if match['template'] not in unique_matches or match['confidence'] > unique_matches[match['template']]['confidence']:
+                unique_matches[match['template']] = match
+        
     all_matches = list(unique_matches.values())
 
     return result_img, all_matches, ring_bounds,banker_bounds,player_bounds
 
-def detect_chips_simple(haystack_img, result_img, all_matches):
-    """Simple detection of chip area without doing complex processing"""
-    # Just focus on the area where chips are typically found
-    height, width = haystack_img.shape[:2]
-    
-    # Chip area is usually in the bottom right
-    chip_area_x = int(width * 0.8)
-    chip_area_y = int(height * 0.8)
-    chip_area_w = int(width * 0.2)
-    chip_area_h = int(height * 0.2)
-    
-    # Draw a rectangle around the likely chip area
-    print(f"Drawing {needle_name}")
-    cv.rectangle(result_img, 
-                (chip_area_x, chip_area_y), 
-                (chip_area_x + chip_area_w, chip_area_y + chip_area_h), 
-                (0, 255, 255), 2)
-    
-    cv.putText(result_img, "Chip Area", (chip_area_x, chip_area_y - 5),
-              cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-    
-    # Add this area to matches
-    all_matches.append({
-        'template': "chip_area",
-        'position': (chip_area_x, chip_area_y),
-        'size': (chip_area_w, chip_area_h),
-        'confidence': 0.5,
-        'scale': 1.0
-    })
-
 def main():
-    haystack_path = '25_16_casino.png'
+    haystack_path = 'casino7.png'
     needle_folder = 'templates'
     output_folder = 'output2'
 
@@ -496,9 +385,9 @@ def main():
     # Use edge detection
     edges = cv.Canny(blurred, 50, 150, apertureSize=3)
 
-    cv.imshow('Detected Grey Lines', edges)
-    cv.waitKey(0)
-    cv.destroyAllWindows()
+    # cv.imshow('Detected Grey Lines', edges)
+    # cv.waitKey(0)
+    # cv.destroyAllWindows()
     
     # Use Hough Line Transform to detect straight lines
     # lines = cv.HoughLinesP(edges, 1, np.pi / 180, 30, minLineLength=10, maxLineGap=7)
@@ -516,10 +405,8 @@ def main():
             x1, y1, x2, y2 = line[0]
             angle = np.arctan2(y2 - y1, x2 - x1) * 180 / np.pi
             if abs(angle) > 85:  # Ensure the line is close to vertical
-                print("hello")
                 ans_top_left = (x2 + x_start, y2 + y_start)
-                cv.line(result, (x1 + x_start, y1 + y_start), (x2 + x_start, y2 + y_start), (0, 255, 0), 2)
-                
+                cv.line(result, (x1 + x_start, y1 + y_start), (x2 + x_start, y2 + y_start), (0, 255, 0), 2)          
                 break
     # cv.drawContours(result, contours, -1, (0, 255, 0), 2)
     color = (0,0,255)
@@ -541,9 +428,9 @@ def main():
     print(f"Result saved in {result_path}")
     
     # Print detection summary
-    # print(f"Total elements detected: {len(matches)}")
-    # for i, match in enumerate(matches):
-    #     print(f"{i+1}. {match['template']} - Confidence: {match['confidence']:.2f} - Scale: {match['scale']:.2f}")
+    print(f"Total elements detected: {len(matches)}")
+    for i, match in enumerate(matches):
+        print(f"{i+1}. {match['template']} - Confidence: {match['confidence']:.2f} - Scale: {match['scale']:.2f}")
     print(time.time() - start)
 if __name__ == "__main__":
     main()
